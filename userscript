@@ -1,0 +1,1228 @@
+// ==UserScript==
+// @name         Emoji Overlay & Live Auto-replace (Tampermonkey)
+// @namespace    https://github.com/jordanalbiar/emoji-overlay
+// @version      1.4.0
+// @description  Live emoji replacement as you type: replace keywords like "smile" -> "😃" in inputs, textareas and contenteditable fields (works more reliably on dynamic sites and chat/search inputs). Configurable mappings and overlay UI (Ctrl+Shift+E). Polling fallback included for hard-to-hook sites.
+// @author       copilot
+// @match        *://*/*
+// @grant        none
+// @run-at       document-end
+// ==/UserScript==
+
+/* Summary
+ - This update makes replacements happen immediately as you type a mapped keyword (e.g. smile -> 😃),
+   without needing to type a delimiter. It improves detection on dynamic sites (React etc.) by:
+   - Listening to beforeinput/input/keydown/composition events at capture phase
+   - Adding a short polling fallback to catch cases where sites intercept or shadow inputs
+   - Handling inputs, textareas and contentEditable areas
+ - You can toggle whether plain-word replacement is enabled in the overlay UI (Require :shortcode:)
+*/
+
+(function () {
+  'use strict';
+
+  // === Config & Storage ===
+  const STORAGE_KEY = 'tmEmojiOverlayConfig_v1';
+
+  function loadConfig() {
+    const defaultConfig = {
+      enabled: true,
+      requireColons: false, // default now allows plain words (you can toggle in UI)
+      mappings: {
+        smile: '😃',
+        grin: '😁',
+        laugh: '😄',
+        joy: '😂',
+        wink: '😉',
+        heart: '❤️',
+        thumbs_up: '👍',
+        clap: '👏',
+        fire: '🔥',
+        cry: '😢',
+        sob: '😭',
+        thinking: '🤔',
+        star: '⭐',
+        party: '🥳',
+        ok: '👌',
+        pray: '🙏',
+        poop: '💩',
+        rocket: '🚀',
+        eyes: '👀',
+        kiss: '😘',
+        blush: '😊',
+        angry: '😠',
+        scream: '😱',
+        cool: '😎',
+        sleeping: '😴',
+        sunflower: '🌻',
+        grinning: '😀',
+        smiley: '😃',
+        smile: '😄',
+        grin: '😁',
+        laughing: '😆',
+        sweat_smile: '😅',
+        joy: '😂',
+        rofl: '🤣',
+        blush: '😊',
+        innocent: '😇',
+        slight_slile: '🙂',
+        upside_down: '🙃',
+        wink: '😉',
+        relieved: '😌',
+        heart_eyes: '😍',
+        smiling_face_with_3_hearts: '🥰',
+        kissing_heart: '😘',
+        kissing: '😗',
+        kissing_smiling_eyes: '😙',
+        kissing_closed_eyes: '😚',
+        yum: '😋',
+        stuck_out_tongue: '😛',
+        stuck_out_tongue_winking_eye: '😜',
+        zany_face: '🤪',
+        stuck_out_tongue_closed_eyes: '😝',
+        money_mouth: '🤑',
+        hugs: '🤗',
+        face_with_hand_over_mouth: '🤭',
+        shushing_face: '🤫',
+        thinking: '🤔',
+        zipper_mouth: '🤐',
+        face_with_raised_eyebrow: '🤨',
+
+        dog: '🐶',
+        cat: '🐱',
+        mouse: '🐭',
+        hamster: '🐹',
+        rabbit: '🐰',
+        fox: '🦊',
+        bear: '🐻',
+        panda_face: '🐼',
+        koala: '🐨',
+        tiger: '🐯',
+        lion: '🦁',
+        cow: '🐮',
+        pig: '🐷',
+        frog: '🐸',
+        monkey_face: '🐵',
+        chicken: '🐔',
+        unicorn: '🦄',
+        horse: '🐴',
+        zebra: '🦓',
+        snake: '🐍',
+        turtle: '🐢',
+        lizard: '🦎',
+        octopus: '🐙',
+        squid: '🦑',
+        fish: '🐟',
+        dolphin: '🐬',
+        butterfly: '🦋',
+        lady_beetle: '🐞',
+        ant: '🐜',
+        duck: '🦆',
+        deciduous_tree: '🌳',
+        cherry_blossom: '🌸',
+        sunflower: '🌻',
+        blossom: '🌼',
+        hibiscus: '🌺',
+        rose: '🌹',
+        cactus: '🌵',
+        palm_tree: '🌴',
+        four_leaf_clover: '🍀',
+        fallen_leaf: '🍂',
+        maple_leaf: '🍁',
+
+        green_apple: '🍏',
+        apple: '🍎',
+        pear: '🍐',
+        tangerine: '🍊',
+        lemon: '🍋',
+        banana: '🍌',
+        watermelon: '🍉',
+        grapes: '🍇',
+        strawberry: '🍓',
+        melon: '🍈',
+        cherries: '🍒',
+        peach: '🍑',
+        pineapple: '🍍',
+        mango: '🥭',
+        coconut: '🥥',
+        kiwi: '🥝',
+        tomato: '🍅',
+        avocado: '🥑',
+        broccoli: '🥦',
+        leafy_green: '🥬',
+        cucumber: '🥒',
+        corn: '🌽',
+        carrot: '🥕',
+        potato: '🥔',
+        sweet_potato: '🍠',
+        bagel: '🥯',
+        baguette_bread: '🥖',
+        bread: '🍞',
+        croissant: '🥐',
+        pancakes: '🥞',
+        waffle: '🧇',
+        cheese: '🧀',
+        meat_on_bone: '🍖',
+        poultry_leg: '🍗',
+        hamburger: '🍔',
+        fries: '🍟',
+        pizza: '🍕',
+        hotdog: '🌭',
+        taco: '🌮',
+        burrito: '🌯',
+        stuffed_flatbread: '🥙',
+        sushi: '🍣',
+        bento: '🍱',
+        curry: '🍛',
+        ramen: '🍜',
+        stew: '🍲',
+        green_salad: '🥗',
+        popcorn: '🍿',
+        salt: '🧂',
+        doughnut: '🍩',
+        cookie: '🍪',
+        birthday: '🎂',
+        cake: '🍰',
+        cupcake: '🧁',
+        chocolate_bar: '🍫',
+        candy: '🍬',
+        lollipop: '🍭',
+        custard: '🍮',
+        honey_pot: '🍯',
+        coffee: '☕',
+        tea: '🍵',
+        cup_with_straw: '🥤',
+        beer: '🍺',
+        beers: '🍻',
+        clinking_glasses: '🥂',
+        wine_glass: '🍷',
+        cocktail: '🍸',
+        tumbler_glass: '🥃',
+        milk_glass: '🥛',
+
+        soccer: '⚽',
+        basketball: '🏀',
+        football: '🏈',
+        baseball: '⚾',
+        tennis: '🎾',
+        volleyball: '🏐',
+        rugby_football: '🏉',
+        ping_pong: '🏓',
+        badminton: '🏸',
+        goal_net: '🥅',
+        ice_hockey: '🏒',
+        field_hockey: '🏑',
+        lacrosse: '🥍',
+        cricket_bat_and_ball: '🏏',
+        golf: '⛳',
+        bow_and_arrow: '🏹',
+        fishing_pole_and_fish: '🎣',
+        boxing_glove: '🥊',
+        martial_arts_uniform: '🥋',
+        running_shirt_with_sash: '🎽',
+        sports_medal: '🏅',
+        medal_military: '🎖️',
+        first_place_medal: '🥇',
+        second_place_medal: '🥈',
+        third_place_medal: '🥉',
+        trophy: '🏆',
+        rosette: '🏵️',
+        reminder_ribbon: '🎗️',
+        ticket: '🎫',
+        tickets: '🎟️',
+        circus_tent: '🎪',
+        juggling: '🤹',
+        performing_arts: '🎭',
+        art: '🎨',
+        clapper: '🎬',
+        microphone: '🎤',
+        headphones: '🎧',
+        saxophone: '🎷',
+        guitar: '🎸',
+        musical_keyboard: '🎹',
+        trumpet: '🎺',
+        violin: '🎻',
+        drum: '🥁',
+        dart: '🎯',
+        bowling: '🎳',
+        video_game: '🎮',
+        joystick: '🕹️',
+        slot_machine: '🎰',
+        game_die: '🎲',
+        jigsaw: '🧩',
+        chess_pawn: '♟️',
+        flower_playing_cards: '🎴',
+        black_joker: '🃏',
+        mahjong: '🀄',
+
+        car: '🚗',
+        taxi: '🚕',
+        blue_car: '🚙',
+        bus: '🚌',
+        trolleybus: '🚎',
+        racing_car: '🏎️',
+        police_car: '🚓',
+        ambulance: '🚑',
+        fire_engine: '🚒',
+        minibus: '🚐',
+        truck: '🚚',
+        articulated_lorry: '🚛',
+        tractor: '🚜',
+        kick_scooter: '🛴',
+        bike: '🚲',
+        motor_scooter: '🛵',
+        motorcycle: '🏍️',
+        rotating_light: '🚨',
+        oncoming_police_car: '🚔',
+        oncoming_bus: '🚍',
+        oncoming_automobile: '🚘',
+        oncoming_taxi: '🚖',
+        aerial_tramway: '🚡',
+        mountain_cableway: '🚠',
+        suspension_railway: '🚟',
+        railway_car: '🚃',
+        train: '🚋',
+        mountain_railway: '🚞',
+        monorail: '🚝',
+        bullettrain_side: '🚄',
+        bullettrain_front: '🚅',
+        light_rail: '🚈',
+        steam_locomotive: '🚂',
+        train2: '🚆',
+        metro: '🚇',
+        tram: '🚊',
+        station: '🚉',
+        airplane: '✈️',
+        airplane_departure: '🛫',
+        airplane_arriving: '🛬',
+        small_airplane: '🛩️',
+        seat: '💺',
+        helicopter: '🚁',
+        artificial_satellite: '🛰️',
+        rocket: '🚀',
+        flying_saucer: '🛸',
+        canoe: '🛶',
+        boat: '⛵',
+        speedboat: '🚤',
+        motor_boat: '🛥️',
+        passenger_ship: '🛳️',
+        ship: '🚢',
+        anchor: '⚓',
+        ferry: '⛴️',
+        beach_umbrella: '🏖️',
+        volcano: '🌋',
+        mount_fuji: '🗻',
+        mountain_snow: '🏔️',
+        camping: '🏕️',
+        desert: '🏜️',
+        desert_island: '🏝️',
+        national_park: '🏞️',
+        stadium: '🏟️',
+        classical_building: '🏛️',
+        building_construction: '🏗️',
+        houses: '🏘️',
+        cityscape: '🏙️',
+        house_abandoned: '🏚️',
+        house: '🏠',
+        house_with_garden: '🏡',
+        office: '🏢',
+        post_office: '🏣',
+        european_post_office: '🏤',
+        hospital: '🏥',
+        bank: '🏦',
+        hotel: '🏨',
+        love_hotel: '🏩',
+        convenience_store: '🏪',
+        school: '🏫',
+        department_store: '🏬',
+        factory: '🏭',
+        japanese_castle: '🏯',
+        european_castle: '🏰',
+        wedding: '💒',
+        tokyo_tower: '🗼',
+        statue_of_liberty: '🗽',
+        map_of_japan: '🗾',
+        foggy: '🌁',
+        night_with_stars: '🌃',
+        sunrise_over_mountains: '🌄',
+        sunrise: '🌅',
+        city_sunrise: '🌆',
+        city_sunset: '🌇',
+        bridge_at_night: '🌉',
+        milky_way: '🌌',
+
+        lock: '🔒',
+        unlock: '🔓',
+        lock_with_ink_pen: '🔏',
+        closed_lock_with_key: '🔐',
+        key: '🔑',
+        old_key: '🗝️',
+        hammer: '🔨',
+        axe: '🪓',
+        pick: '⛏️',
+        hammer_and_pick: '⚒️',
+        hammer_and_wrench: '🛠️',
+        dagger: '🗡️',
+        crossed_swords: '⚔️',
+        gun: '🔫',
+        shield: '🛡️',
+        wrench: '🔧',
+        nut_and_bolt: '🔩',
+        gear: '⚙️',
+        clamp: '🗜️',
+        probing_cane: '🦯',
+        link: '🔗',
+        chains: '⛓️',
+        hook: '🪝',
+        toolbox: '🧰',
+        magnet: '🧲',
+        ladder: '🪜',
+        alembic: '⚗️',
+        test_tube: '🧪',
+        petri_dish: '🧫',
+        dna: '🧬',
+        microscope: '🔬',
+        telescope: '🔭',
+        satellite: '📡',
+        syringe: '💉',
+        drop_of_blood: '🩸',
+        pill: '💊',
+        adhesive_bandage: '🩹',
+        stethoscope: '🩺',
+        door: '🚪',
+        elevator: '🛗',
+        mirror: '🪞',
+        window: '🪟',
+        bed: '🛏️',
+        couch_and_lamp: '🛋️',
+        chair: '🪑',
+        toilet: '🚽',
+        shower: '🚿',
+        bathtub: '🛁',
+        plunger: '🪠',
+        smoking: '🚬',
+        coffin: '⚰️',
+        funeral_urn: '⚱️',
+        moyai: '🗿',
+        shopping: '🛍️',
+        shopping_cart: '🛒',
+        gift: '🎁',
+        balloon: '🎈',
+        flags: '🎏',
+        ribbon: '🎀',
+        confetti_ball: '🎊',
+        tada: '🎉',
+        dolls: '🎎',
+        izakaya_lantern: '🏮',
+        diya_lamp: '🪔',
+        email: '✉️',
+        package: '📦',
+        postbox: '📮',
+        postal_horn: '📯',
+        scroll: '📜',
+        page_with_curl: '📃',
+        page_facing_up: '📄',
+        date: '📅',
+        calendar: '📆',
+        card_index: '📇',
+        clipboard: '📋',
+        file_folder: '📁',
+        open_file_folder: '📂',
+        card_index_dividers: '🗂️',
+        file_cabinet: '🗃️',
+        filing_cabinet: '🗄️',
+        bookmark_tabs: '📑',
+        label: '🏷️',
+        bar_chart: '📊',
+        chart_with_upwards_trend: '📈',
+        chart_with_downwards_trend: '📉',
+        pushpin: '📌',
+        round_pushpin: '📍',
+        paperclip: '📎',
+        paperclips: '🖇️',
+        triangular_ruler: '📐',
+        straight_ruler: '📏',
+        abacus: '🧮',
+        closed_book: '📕',
+        book: '📖',
+        green_book: '📗',
+        blue_book: '📘',
+        orange_book: '📙',
+        books: '📚',
+        notebook: '📓',
+        ledger: '📒',
+        newspaper_roll: '🗞️',
+        bookmark: '🔖',
+        camera: '📷',
+        camera_flash: '📸',
+        video_camera: '📹',
+        vhs: '📼',
+        tv: '📺',
+        radio: '📻',
+        studio_microphone: '🎙️',
+        banjo: '🪕',
+        drum: '🥁',
+        saxophone: '🎷',
+        yo_yo: '🪀',
+        teddy_bear: '🧸',
+        nesting_dolls: '🪆',
+        piñata: '🪅',
+        jigsaw: '🧩',
+        crystal_ball: '🔮',
+        nazar_amulet: '🧿',
+        magic_wand: '🪄',
+
+        teddy_bear_dup: '🧸',
+        shopping_dup: '🛍️',
+        shopping_cart_dup: '🛒',
+
+        heart: '❤️',
+        yellow_heart: '💛',
+        green_heart: '💚',
+        blue_heart: '💙',
+        purple_heart: '💜',
+        black_heart: '🖤',
+        white_heart: '🤍',
+        brown_heart: '🤎',
+        broken_heart: '💔',
+        heavy_heart_exclamation: '❣️',
+        two_hearts: '💕',
+        revolving_hearts: '💞',
+        heartbeat: '💓',
+        heartpulse: '💗',
+        sparkling_heart: '💖',
+        cupid: '💘',
+        gift_heart: '💝',
+        heart_decoration: '💟',
+        peace_symbol: '☮️',
+        latin_cross: '✝️',
+        star_and_crescent: '☪️',
+        om: '🕉️',
+        wheel_of_dharma: '☸️',
+        star_of_david: '✡️',
+        six_pointed_star: '🔯',
+        menorah: '🕎',
+        yin_yang: '☯️',
+        orthodox_cross: '☦️',
+        place_of_worship: '🛐',
+        ophiuchus: '⛎',
+        aries: '♈',
+        taurus: '♉',
+        gemini: '♊',
+        cancer: '♋',
+        leo: '♌',
+        virgo: '♍',
+        libra: '♎',
+        scorpio: '♏',
+        sagittarius: '♐',
+        capricorn: '♑',
+        aquarius: '♒',
+        pisces: '♓',
+        twisted_rightwards_arrows: '🔀',
+        repeat: '🔁',
+        repeat_one: '🔂',
+        arrow_forward: '▶️',
+        fast_forward: '⏩',
+        next_track_button: '⏭️',
+        play_or_pause_button: '⏯️',
+        arrow_backward: '◀️',
+        rewind: '⏪',
+        previous_track_button: '⏮️',
+        arrow_up_small: '🔼',
+        arrow_double_up: '⏫',
+        arrow_down_small: '🔽',
+        arrow_double_down: '⏬',
+        cinema: '🎦',
+        low_brightness: '🔅',
+        high_brightness: '🔆',
+        signal_strength: '📶',
+        vibration_mode: '📳',
+        mobile_phone_off: '📴',
+        recycle: '♻️',
+        ok: '🆗',
+        cool: '🆒',
+        new: '🆕',
+        up: '🆙',
+        free: '🆓',
+        abc: '🔤',
+        abcd: '🔡',
+        capital_abcd: '🔠',
+        symbols: '🔣',
+        a: '🅰️',
+        b: '🅱️',
+        ab: '🆎',
+        o: '🅾️',
+        arrows_counterclockwise: '🔄',
+        arrows_clockwise: '🔃',
+        musical_note: '🎵',
+        notes: '🎶',
+        heavy_plus_sign: '➕',
+        heavy_minus_sign: '➖',
+        heavy_division_sign: '➗',
+        heavy_multiplication_x: '✖️',
+        infinity: '♾️',
+        question: '❓',
+        grey_question: '❔',
+        grey_exclamation: '❕',
+        exclamation: '❗',
+        interrobang: '⁉️',
+        currency_exchange: '💱',
+        heavy_dollar_sign: '💲',
+        medical_symbol: '⚕️',
+        fleur_de_lis: '⚜️',
+        trident: '🔱',
+        name_badge: '📛',
+        beginner: '🔰',
+        o_circle: '⭕',
+        white_check_mark: '✅',
+        ballot_box_with_check: '☑️',
+        heavy_check_mark: '✔️',
+        x: '❌',
+        negative_squared_cross_mark: '❎',
+        curly_loop: '➰',
+        loop: '➿',
+        part_alternation_mark: '〽️',
+        end: '🔚',
+        on: '🔛',
+        soon: '🔜',
+        top: '🔝',
+        koko: '🈁',
+        vs: '🆚',
+        accept: '🉑',
+
+        flag_us: '🇺🇸',
+        flag_ca: '🇨🇦',
+        flag_gb: '🇬🇧',
+        flag_au: '🇦🇺',
+        flag_in: '🇮🇳',
+        flag_jp: '🇯🇵',
+        flag_kr: '🇰🇷',
+        flag_cn: '🇨🇳',
+        flag_de: '🇩🇪',
+        flag_fr: '🇫🇷',
+        flag_es: '🇪🇸',
+        flag_it: '🇮🇹',
+        flag_br: '🇧🇷',
+        flag_ru: '🇷🇺',
+        flag_mx: '🇲🇽',
+        flag_sa: '🇸🇦',
+        flag_za: '🇿🇦',
+        flag_ae: '🇦🇪',
+        flag_ar: '🇦🇷',
+        flag_ng: '🇳🇬',
+        flag_eg: '🇪🇬',
+        flag_tr: '🇹🇷',
+        flag_il: '🇮🇱',
+        flag_sg: '🇸🇬',
+        flag_nz: '🇳🇿',
+        flag_id: '🇮🇩',
+        flag_ph: '🇵🇭',
+        flag_pk: '🇵🇰',
+        flag_th: '🇹🇭',
+        flag_vn: '🇻🇳',
+        flag_my: '🇲🇾',
+        flag_bd: '🇧🇩',
+        flag_pl: '🇵🇱',
+        flag_no: '🇳🇴',
+        flag_se: '🇸🇪',
+        flag_dk: '🇩🇰',
+        flag_fi: '🇫🇮',
+        flag_nl: '🇳🇱',
+        flag_be: '🇧🇪',
+        flag_at: '🇦🇹',
+        flag_ch: '🇨🇭',
+        flag_pt: '🇵🇹',
+        flag_gr: '🇬🇷',
+        flag_hu: '🇭🇺',
+        flag_cz: '🇨🇿',
+        flag_ro: '🇷🇴',
+        flag_sk: '🇸🇰',
+        flag_bg: '🇧🇬',
+        flag_ir: '🇮🇷',
+        flag_iq: '🇮🇶',
+        flag_np: '🇳🇵',
+        flag_af: '🇦🇫',
+        flag_lk: '🇱🇰',
+        flag_bh: '🇧🇭',
+        flag_jo: '🇯🇴',
+        flag_qa: '🇶🇦',
+        flag_om: '🇴🇲',
+        flag_kw: '🇰🇼',
+        flag_ye: '🇾🇪',
+        flag_ma: '🇲🇦',
+        flag_dz: '🇩🇿',
+        flag_tn: '🇹🇳',
+        flag_ly: '🇱🇾',
+        rainbow_flag: '🏳️‍🌈',
+        transgender_flag: '🏳️‍⚧️',
+        black_flag: '🏴',
+        checkered_flag: '🏁',
+        triangular_flag_on_post: '🚩',
+        white_flag: '🏳️',
+        united_nations: '🇺🇳',
+
+        cherry_blossom_aesthetic: '🌸',
+        crescent_moon: '🌙',
+        sparkles: '✨',
+        glowing_star: '🌟',
+        rainbow: '🌈',
+        dizzy: '💫',
+        leaves: '🍃',
+        hibiscus_aesthetic: '🌺',
+        tulip: '🌷',
+        fallen_leaf_dup: '🍂',
+        milky_way: '🌌',
+        wind_chime: '🎐',
+        two_hearts: '💕',
+        musical_notes: '🎶',
+        sunflower_aesthetic: '🌻'
+}
+    };
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        return Object.assign({}, defaultConfig, JSON.parse(stored));
+      }
+    } catch (e) {
+      console.warn('EmojiOverlay: load failed, using defaults.', e);
+    }
+    return defaultConfig;
+  }
+
+  function saveConfig(cfg) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    } catch (e) {
+      console.warn('EmojiOverlay: save failed', e);
+    }
+  }
+
+  let config = loadConfig();
+
+  // === Utility ===
+  function triggerInputEvent(el) {
+    try {
+      const ev = new Event('input', { bubbles: true, cancelable: true });
+      el.dispatchEvent(ev);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function isTextInput(el) {
+    if (!el) return false;
+    const t = el.tagName;
+    if (!t) return false;
+    return (t === 'INPUT' && /^(?:text|search|url|tel|email|password)$/i.test(el.type || 'text')) || t === 'TEXTAREA';
+  }
+
+  function isContentEditable(el) {
+    return !!(el && el.isContentEditable);
+  }
+
+  // sanitize mapping key to canonical form
+  function canonicalKey(k) {
+    return k.trim().toLowerCase().replace(/\s+/g, '_');
+  }
+
+  // === Core Replacement Logic ===
+
+  // Replace inside inputs/textareas (works for controlled components when we set value + dispatch input)
+  function replaceInInput(el) {
+    if (!config.enabled) return false;
+    if (!el) return false;
+    try {
+      const val = el.value;
+      const caret = el.selectionStart;
+      if (caret == null) return false;
+
+      const left = val.slice(0, caret);
+
+      // If colon style is enabled, try :shortcode: first.
+      if (config.requireColons) {
+        const colonMatch = left.match(/:([a-z0-9_\-\+]+):$/i);
+        if (colonMatch && config.mappings.hasOwnProperty(colonMatch[1])) {
+          const key = colonMatch[1];
+          const emoji = config.mappings[key];
+          const startIdx = caret - colonMatch[0].length;
+          const newVal = val.slice(0, startIdx) + emoji + val.slice(caret);
+          el.value = newVal;
+          const newPos = startIdx + emoji.length;
+          el.setSelectionRange(newPos, newPos);
+          triggerInputEvent(el);
+          return true;
+        }
+        return false;
+      }
+
+      // Plain-word replacement mode: replace when the sequence of characters immediately before caret
+      // forms a mapped keyword AND the character before the keyword (if any) is a non-word boundary.
+      // Only replace when caret is right after the keyword (i.e., user typed the last letter).
+      const match = left.match(/(^|[^a-z0-9_\-+])([a-z0-9_\-+]+)$/i);
+      if (match) {
+        const key = match[2].toLowerCase();
+        if (config.mappings.hasOwnProperty(key)) {
+          const emoji = config.mappings[key];
+          const startIdx = caret - key.length;
+          // ensure we don't eat preceding char: keep match[1] prefix
+          const newVal = val.slice(0, startIdx) + emoji + val.slice(caret);
+          el.value = newVal;
+          const newPos = startIdx + emoji.length;
+          el.setSelectionRange(newPos, newPos);
+          triggerInputEvent(el);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn('EmojiOverlay: replaceInInput error', e);
+    }
+    return false;
+  }
+
+  // Replace inside contenteditable
+  function replaceInContentEditable() {
+    if (!config.enabled) return false;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) return false;
+
+    // Get up to 128 chars before caret for context
+    const maxBack = 128;
+    const probeRange = range.cloneRange();
+    let moved = 0;
+
+    // Walk backwards char-by-char through text nodes to build 'before' string
+    function getTextBefore(range, limit) {
+      const r = range.cloneRange();
+      let start = r.startContainer;
+      let startOffset = r.startOffset;
+
+      // We'll attempt to move the start backwards by characters.
+      let text = '';
+      let charsLeft = limit;
+      let node = start;
+      let offset = startOffset;
+
+      // Helper to move to previous text node and set offset to its length
+      function prevTextNode(n) {
+        // Depth-first previous node search
+        function prev(n) {
+          if (!n) return null;
+          if (n.previousSibling) {
+            n = n.previousSibling;
+            // go to deepest child
+            while (n && n.lastChild) n = n.lastChild;
+            return n;
+          }
+          return n.parentNode;
+        }
+        let p = prev(n);
+        while (p && p.nodeType !== Node.TEXT_NODE) {
+          p = prev(p);
+        }
+        return p;
+      }
+
+      let cur = node;
+      let off = offset;
+      // If current node is element, try previous text node
+      if (cur.nodeType !== Node.TEXT_NODE) {
+        cur = prevTextNode(cur);
+        off = cur ? cur.textContent.length : 0;
+      }
+
+      while (cur && charsLeft > 0) {
+        const take = Math.min(off, charsLeft);
+        if (take > 0) {
+          text = cur.textContent.slice(off - take, off) + text;
+          charsLeft -= take;
+        }
+        if (charsLeft <= 0) break;
+        cur = prevTextNode(cur);
+        off = cur ? cur.textContent.length : 0;
+      }
+      return text;
+    }
+
+    const before = getTextBefore(range, maxBack);
+
+    // Handle colon mode first
+    if (config.requireColons) {
+      const colonMatch = before.match(/:([a-z0-9_\-\+]+):$/i);
+      if (colonMatch && config.mappings.hasOwnProperty(colonMatch[1])) {
+        const key = colonMatch[1];
+        const emoji = config.mappings[key];
+        // Replace the matched portion by moving a new range and inserting emoji
+        return replaceRangeText(range, colonMatch[0].length, emoji);
+      }
+      return false;
+    }
+
+    // Plain-word mode
+    const wordMatch = before.match(/([a-z0-9_\-\+]+)$/i);
+    if (wordMatch && config.mappings.hasOwnProperty(wordMatch[1].toLowerCase())) {
+      const key = wordMatch[1].toLowerCase();
+      const emoji = config.mappings[key];
+      return replaceRangeText(range, wordMatch[0].length, emoji);
+    }
+
+    return false;
+  }
+
+  // Replace 'length' characters immediately before the provided collapsed range with 'text'
+  function replaceRangeText(collapsedRange, charsBefore, text) {
+    try {
+      // Build a start position charsBefore chars back from collapsedRange.start
+      const startRange = collapsedRange.cloneRange();
+      // We'll move start backwards by traversing text nodes
+      let remaining = charsBefore;
+      let node = startRange.startContainer;
+      let offset = startRange.startOffset;
+
+      function prevTextNode(n) {
+        function prev(n) {
+          if (!n) return null;
+          if (n.previousSibling) {
+            n = n.previousSibling;
+            while (n && n.lastChild) n = n.lastChild;
+            return n;
+          }
+          return n.parentNode;
+        }
+        let p = prev(n);
+        while (p && p.nodeType !== Node.TEXT_NODE) p = prev(p);
+        return p;
+      }
+
+      // If starting in element, find last text node before offset
+      if (node.nodeType !== Node.TEXT_NODE) {
+        // find child at offset-1 and then its deepest rightmost text node
+        let cur = node.childNodes[offset - 1];
+        while (cur && cur.nodeType !== Node.TEXT_NODE && cur.lastChild) cur = cur.lastChild;
+        node = cur || prevTextNode(node);
+        offset = node ? node.textContent.length : 0;
+      }
+
+      while (remaining > 0 && node) {
+        const take = Math.min(offset, remaining);
+        remaining -= take;
+        offset -= take;
+        if (remaining <= 0) break;
+        node = prevTextNode(node);
+        offset = node ? node.textContent.length : 0;
+      }
+
+      if (!node) return false;
+      const startNode = node;
+      const startOffset = offset;
+
+      const replacementRange = document.createRange();
+      replacementRange.setStart(startNode, startOffset);
+      replacementRange.setEnd(collapsedRange.startContainer, collapsedRange.startOffset);
+      replacementRange.deleteContents();
+      const textNode = document.createTextNode(text);
+      replacementRange.insertNode(textNode);
+
+      // Place caret after inserted node
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      const newRange = document.createRange();
+      newRange.setStartAfter(textNode);
+      newRange.collapse(true);
+      sel.addRange(newRange);
+      return true;
+    } catch (e) {
+      console.warn('EmojiOverlay: replaceRangeText failed', e);
+      return false;
+    }
+  }
+
+  // === Event Handling & Robust Hooks ===
+
+  // Primary handler, called from many events
+  function tryReplaceActive() {
+    const active = document.activeElement;
+    if (!active) return false;
+    if (isTextInput(active)) {
+      return replaceInInput(active);
+    } else if (isContentEditable(active)) {
+      return replaceInContentEditable();
+    }
+    return false;
+  }
+
+  // Capture-phase listeners to be able to run before site handlers sometimes
+  document.addEventListener('beforeinput', (e) => {
+    // don't act during composition (IME)
+    if (e.isComposing) return;
+    // run on capture
+    tryReplaceActive();
+  }, true);
+
+  document.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    tryReplaceActive();
+  }, true);
+
+  document.addEventListener('keydown', (e) => {
+    // handle normal typing keys (letters, numbers, punctuation)
+    // allow composition and modifier combos to pass
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // attempt replacement after the key (we cannot inspect next value here reliably), but schedule microtask
+    requestAnimationFrame(() => {
+      tryReplaceActive();
+    });
+  }, true);
+
+  // compositionend: IME input finished
+  document.addEventListener('compositionend', (e) => {
+    setTimeout(() => tryReplaceActive(), 0);
+  }, true);
+
+  // fallback polling for sites that trap events or use shadow DOM heavily
+  let lastChecked = { el: null, val: null, caret: null };
+  setInterval(() => {
+    const active = document.activeElement;
+    if (!active) {
+      lastChecked = { el: null, val: null, caret: null };
+      return;
+    }
+    // only consider inputs/textarea/contentEditable
+    if (!isTextInput(active) && !isContentEditable(active)) {
+      lastChecked = { el: null, val: null, caret: null };
+      return;
+    }
+
+    // determine current value & caret
+    let val = null;
+    let caret = null;
+    try {
+      if (isTextInput(active)) {
+        val = active.value;
+        caret = active.selectionStart;
+      } else if (isContentEditable(active)) {
+        val = active.innerText; // rough textual state
+        const sel = window.getSelection();
+        caret = sel && sel.rangeCount ? (sel.getRangeAt(0).startOffset) : null;
+      }
+    } catch (e) {
+      val = null;
+      caret = null;
+    }
+
+    // if changed since last check, try replacement
+    if (active !== lastChecked.el || val !== lastChecked.val || caret !== lastChecked.caret) {
+      lastChecked = { el: active, val, caret };
+      tryReplaceActive();
+    }
+  }, 180); // every 180ms - light but responsive
+
+  // Paste handling
+  document.addEventListener('paste', (e) => {
+    setTimeout(() => tryReplaceActive(), 20);
+  }, true);
+
+  // Focus change handling
+  document.addEventListener('focusin', (e) => {
+    // reset cache so polling runs replacement on new field immediately
+    lastChecked = { el: null, val: null, caret: null };
+  });
+
+  // === Overlay UI (same as before, with small tweaks) ===
+  const containerId = 'tm-emoji-overlay-container';
+  if (!document.getElementById(containerId)) buildOverlay();
+
+  function buildOverlay() {
+    const style = document.createElement('style');
+    style.textContent = `
+      #${containerId} { position: fixed; right: 12px; top: 12px; z-index: 9999999; font-family: Arial, Helvetica, sans-serif; }
+      #${containerId} .tm-btn { background: #1f6feb; color: white; border: none; padding: 8px 10px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+      #${containerId} .tm-panel { width: 360px; background: white; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); margin-top: 8px; overflow: hidden; display: none; font-size: 13px; color: #222; }
+      #${containerId} .tm-header { display:flex; align-items:center; justify-content:space-between; padding: 10px 12px; background: #f6f8fa; border-bottom: 1px solid #e6e6e6; }
+      #${containerId} .tm-search { padding: 8px 12px; border-bottom: 1px solid #eee; display:flex; gap:8px; align-items:center; }
+      #${containerId} input.tm-search-input { flex:1; padding:8px; border:1px solid #ddd; border-radius:6px; }
+      #${containerId} .tm-list { max-height: 260px; overflow:auto; padding:8px 12px; }
+      #${containerId} .tm-item { display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #f0f0f0; }
+      #${containerId} .tm-item .k { font-weight:600; margin-right:8px; }
+      #${containerId} .tm-add { padding:10px 12px; display:flex; gap:8px; border-top:1px solid #eee; background:#fafafa; }
+      #${containerId} .tm-small { font-size:12px; color:#666; }
+      #${containerId} .tm-toggle { display:flex; align-items:center; gap:8px; }
+      #${containerId} .tm-mapping-key { width: 45%; padding:6px; border:1px solid #ddd; border-radius:6px; }
+      #${containerId} .tm-mapping-value { width: 35%; padding:6px; border:1px solid #ddd; border-radius:6px; }
+      #${containerId} .tm-remove { background:#e55353; color:white; border:none; border-radius:6px; padding:6px 8px; cursor:pointer; }
+      #${containerId} .tm-footer { padding:8px 12px; font-size:12px; color:#666; background:#f9fafb; border-top:1px solid #eee; }
+    `;
+    document.head.appendChild(style);
+
+    const container = document.createElement('div');
+    container.id = containerId;
+
+    const btn = document.createElement('button');
+    btn.className = 'tm-btn';
+    btn.textContent = '😊 Emojis';
+    btn.title = 'Open Emoji Overlay (Ctrl+Shift+E)';
+    container.appendChild(btn);
+
+    const panel = document.createElement('div');
+    panel.className = 'tm-panel';
+    panel.id = containerId + '-panel';
+
+    const header = document.createElement('div');
+    header.className = 'tm-header';
+    const title = document.createElement('div');
+    title.innerHTML = '<strong>Emoji Overlay</strong> <span class="tm-small">Auto-replace ' + (config.requireColons ? '(require :shortcode:)' : '(plain words allowed)') + '</span>';
+    header.appendChild(title);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tm-btn';
+    closeBtn.textContent = 'Close';
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    const search = document.createElement('div');
+    search.className = 'tm-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Filter mappings (keyword or emoji)';
+    searchInput.className = 'tm-search-input';
+    search.appendChild(searchInput);
+    const toggleDiv = document.createElement('div');
+    toggleDiv.className = 'tm-toggle';
+    const enableCheckbox = document.createElement('input');
+    enableCheckbox.type = 'checkbox';
+    enableCheckbox.checked = !!config.enabled;
+    const enableLabel = document.createElement('label');
+    enableLabel.appendChild(enableCheckbox);
+    enableLabel.append(' Enabled ');
+    const colonCheckbox = document.createElement('input');
+    colonCheckbox.type = 'checkbox';
+    colonCheckbox.checked = !!config.requireColons;
+    colonCheckbox.style.marginLeft = '8px';
+    const colonLabel = document.createElement('label');
+    colonLabel.appendChild(colonCheckbox);
+    colonLabel.append(' Require :shortcode: ');
+    toggleDiv.appendChild(enableLabel);
+    toggleDiv.appendChild(colonLabel);
+    search.appendChild(toggleDiv);
+    panel.appendChild(search);
+
+    const list = document.createElement('div');
+    list.className = 'tm-list';
+    panel.appendChild(list);
+
+    const add = document.createElement('div');
+    add.className = 'tm-add';
+    const keyInput = document.createElement('input');
+    keyInput.placeholder = 'keyword (e.g. smile)';
+    keyInput.className = 'tm-mapping-key';
+    const valInput = document.createElement('input');
+    valInput.placeholder = 'emoji (e.g. 😊)';
+    valInput.className = 'tm-mapping-value';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'tm-btn';
+    addBtn.textContent = 'Add';
+    add.appendChild(keyInput);
+    add.appendChild(valInput);
+    add.appendChild(addBtn);
+    panel.appendChild(add);
+
+    const footer = document.createElement('div');
+    footer.className = 'tm-footer';
+    footer.innerHTML = 'Tip: Press Ctrl+Shift+E to open. Edit or remove mappings here. Mappings persist in your browser.';
+    panel.appendChild(footer);
+
+    container.appendChild(panel);
+    document.body.appendChild(container);
+
+    function renderList(filter) {
+      list.innerHTML = '';
+      const entries = Object.entries(config.mappings).sort((a, b) => a[0].localeCompare(b[0]));
+      for (const [k, v] of entries) {
+        if (filter) {
+          const f = filter.toLowerCase();
+          if (!(k.toLowerCase().includes(f) || (v && v.includes(filter)))) continue;
+        }
+        const item = document.createElement('div');
+        item.className = 'tm-item';
+        const left = document.createElement('div');
+        left.innerHTML = `<span class="k">${escapeHtml(k)}</span><span class="tm-small">${escapeHtml(v)}</span>`;
+        const right = document.createElement('div');
+        const remove = document.createElement('button');
+        remove.className = 'tm-remove';
+        remove.textContent = 'Del';
+        remove.addEventListener('click', () => {
+          delete config.mappings[k];
+          saveConfig(config);
+          renderList(searchInput.value.trim());
+        });
+        right.appendChild(remove);
+        item.appendChild(left);
+        item.appendChild(right);
+        list.appendChild(item);
+      }
+      if (list.childNodes.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'tm-small';
+        empty.textContent = 'No mappings match.';
+        list.appendChild(empty);
+      }
+    }
+
+    renderList();
+
+    btn.addEventListener('click', () => togglePanel(true));
+    closeBtn.addEventListener('click', () => togglePanel(false));
+    function togglePanel(show) {
+      panel.style.display = show ? 'block' : 'none';
+    }
+
+    searchInput.addEventListener('input', (e) => renderList(e.target.value.trim()));
+
+    enableCheckbox.addEventListener('change', (e) => {
+      config.enabled = e.target.checked;
+      saveConfig(config);
+      refreshBtnState();
+    });
+    colonCheckbox.addEventListener('change', (e) => {
+      config.requireColons = e.target.checked;
+      saveConfig(config);
+      title.innerHTML = '<strong>Emoji Overlay</strong> <span class="tm-small">Auto-replace ' + (config.requireColons ? '(require :shortcode:)' : '(plain words allowed)') + '</span>';
+    });
+
+    addBtn.addEventListener('click', () => {
+      const k = keyInput.value.trim();
+      const v = valInput.value.trim();
+      if (!k || !v) {
+        alert('Provide both keyword and emoji.');
+        return;
+      }
+      const safeKey = canonicalKey(k);
+      config.mappings[safeKey] = v;
+      saveConfig(config);
+      keyInput.value = '';
+      valInput.value = '';
+      renderList(searchInput.value.trim());
+    });
+
+    // Keyboard shortcut Ctrl+Shift+E
+    document.addEventListener('keydown', (ev) => {
+      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyE') {
+        ev.preventDefault();
+        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+      }
+    });
+
+    function refreshBtnState() {
+      if (config.enabled) btn.style.background = '#1f6feb';
+      else btn.style.background = '#9aa4b2';
+    }
+    refreshBtnState();
+  }
+
+  // small helper
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  console.info('Emoji Overlay (live) loaded. Press Ctrl+Shift+E to open overlay.');
+})();
